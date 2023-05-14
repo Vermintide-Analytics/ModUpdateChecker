@@ -4,8 +4,9 @@ This tool gives Vermintide modders a standardized way to tell users if they do n
 
 ## How to use
 
-1. Download `EnabledModUpdateChecker.exe` and whichever batch scripts you want to use and place them both in the same folder as Vermintide Mod Builder (VMB).
-2. Then, run one of those scripts the same way you would the original `_Upload Mod` scripts.
+1. Download `EnabledModUpdateChecker.exe` and the archive of batch scripts.
+2. Place the executable and unzip the batch scripts to the same folder as Vermintide Mod Builder (VMB).
+3. Run one of those scripts the same way you would the original `_Upload Mod` scripts.
 
 ## Details
 `EnableModUpdateChecker.exe` is meant to be used along with VMB. This is accomplished with the included batch files, but you can also write your own scripts following the steps below. 
