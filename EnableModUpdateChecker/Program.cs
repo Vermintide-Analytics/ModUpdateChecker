@@ -51,6 +51,7 @@ namespace EnableModUpdateChecker
             if(cleanup)
             {
                 luaMod.RestoreOriginalLua();
+                Console.WriteLine("ModUpdateChecker code removed from " + modName);
             }
             else
             {
@@ -61,6 +62,7 @@ namespace EnableModUpdateChecker
                     return 1;
                 }
                 luaMod.AddUpdateChecker(modId, force);
+                Console.WriteLine("ModUpdateChecker code added to " + modName);
             }
 
             return 0;
