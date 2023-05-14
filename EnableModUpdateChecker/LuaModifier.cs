@@ -141,7 +141,7 @@ Managers.curl:get(""https://steamcommunity.com/sharedfiles/filedetails/changelog
 
         private static readonly Dictionary<string, string> OutOfDateLocalizations = new Dictionary<string, string>()
         {
-            { "en", "You do not have the latest version of %s." }
+            { "en", "You are not using the latest version of %s." }
         };
 
         private void AddLocalizationScriptCode()
