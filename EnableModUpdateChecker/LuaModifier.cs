@@ -64,14 +64,7 @@ namespace EnableModUpdateChecker
         #region Private
         private void AddModScriptCode(string modId)
         {
-            string modText = File.ReadAllText($"{ModFolder}/{ModScriptName}") + "\n\n";
-
-            var replacementPattern = new Regex("$");
-            var insertion = GenerateModScriptLua(modId, GetModVariableName());
-
-            var replaced = replacementPattern.Replace(modText, insertion, 1);
-
-            File.WriteAllText($"{ModFolder}/{ModScriptName}", replaced);
+            File.AppendAllText($"{ModFolder}/{ModScriptName}", $"\n\n{GenerateModScriptLua(modId, GetModVariableName())}");
         }
         private string GenerateModScriptLua(string modId, string modVarName)
         {
