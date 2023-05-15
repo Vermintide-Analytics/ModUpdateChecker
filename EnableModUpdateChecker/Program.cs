@@ -50,8 +50,15 @@ namespace EnableModUpdateChecker
 
             if(cleanup)
             {
-                luaMod.RestoreOriginalLua();
-                Console.WriteLine("ModUpdateChecker code removed from " + modName);
+                var failureReason = luaMod.RestoreOriginalLua();
+                if(failureReason != null)
+                {
+                    Console.Error.WriteLine($"FAILED TO REMOVE MOD UPDATE CHECKER CODE, PLEASE TAKE MANUAL ACTION:\n{failureReason}");
+                }
+                else
+                {
+                    Console.WriteLine("ModUpdateChecker code removed from " + modName);
+                }
             }
             else
             {
@@ -61,8 +68,15 @@ namespace EnableModUpdateChecker
                     Console.Error.WriteLine("Could not read mod ID from itemV2.cfg");
                     return 1;
                 }
-                luaMod.AddUpdateChecker(modId, force);
-                Console.WriteLine("ModUpdateChecker code added to " + modName);
+                var failureReason = luaMod.AddUpdateChecker(modId, force);
+                if(failureReason != null)
+                {
+                    Console.Error.WriteLine($"FAILED TO ADD MOD UPDATE CHECKER CODE:\n{failureReason}");
+                }
+                else
+                {
+                    Console.WriteLine("ModUpdateChecker code added to " + modName);
+                }
             }
 
             return 0;

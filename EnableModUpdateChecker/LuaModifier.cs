@@ -1,6 +1,8 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
+using System.Reflection.Metadata;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
@@ -30,15 +32,14 @@ namespace EnableModUpdateChecker
         }
 
         #region Public
-        public void AddUpdateChecker(string modId, bool force)
+        public string? AddUpdateChecker(string modId, bool force)
         {
             var modScriptTempFileName = new FileInfo($"{ModFolder}/{ModScriptName}").Name;
             var localizationScriptTempFileName = new FileInfo($"{ModFolder}/{LocalizationScriptName}").Name;
 
             if(!force && (File.Exists($"{TempFolder}/{modScriptTempFileName}") || File.Exists($"{TempFolder}/{localizationScriptTempFileName}")))
             {
-                Console.Error.WriteLine($"EnableModUpdateChecker did not properly clean up last time it was run. Please remove auto-generated code from the end of these files, then run this command again with -force\n{modScriptTempFileName}\n{localizationScriptTempFileName}");
-                return;
+                return $"EnableModUpdateChecker did not properly clean up last time it was run. Please remove auto-generated code from the end of these files, then run this command again with -force\n{modScriptTempFileName}\n{localizationScriptTempFileName}";
             }
 
             // Backup scripts to our temp folder
@@ -46,26 +47,60 @@ namespace EnableModUpdateChecker
             File.Copy($"{ModFolder}/{LocalizationScriptName}", $"{TempFolder}/{localizationScriptTempFileName}", true);
 
             // Modify lua in-place
-            AddModScriptCode(modId);
-            AddLocalizationScriptCode();
+            var modScriptFailureReason = AddModScriptCode(modId);
+            if(modScriptFailureReason != null)
+            {
+                File.Delete($"{TempFolder}/{modScriptTempFileName}");
+                File.Delete($"{TempFolder}/{localizationScriptTempFileName}");
+
+                return $"Failed to add lua to {ModFolder}/{ModScriptName}. Reason: {modScriptFailureReason}";
+            }
+            var localizationFailureReason = AddLocalizationScriptCode();
+            if(localizationFailureReason != null)
+            {
+                // If we get here, we're aborting but we already modified the other lua file, so restore it
+                string restoreFailureReason = MoveFile($"{TempFolder}/{modScriptTempFileName}", $"{ModFolder}/{ModScriptName}", true);
+                if(restoreFailureReason != null)
+                {
+                    localizationFailureReason += $"\nWARNING: {ModFolder}/{ModScriptName} WAS MODIFIED AND THE CHANGES COULD NOT BE REVERTED. MANUAL ACTION REQUIRED.";
+                }
+                File.Delete($"{TempFolder}/{localizationScriptTempFileName}");
+                return $"Failed to add lua to {ModFolder}/{LocalizationScriptName}. Reason: {localizationFailureReason}";
+            }
+
+            return Success;
         }
 
-        public void RestoreOriginalLua()
+        public string? RestoreOriginalLua()
         {
             var modScriptTempFileName = new FileInfo($"{ModFolder}/{ModScriptName}").Name;
             var localizationScriptTempFileName = new FileInfo($"{ModFolder}/{LocalizationScriptName}").Name;
 
             // Restore scripts from our temp folder
-            File.Move($"{TempFolder}/{modScriptTempFileName}", $"{ModFolder}/{ModScriptName}", true);
-            File.Move($"{TempFolder}/{localizationScriptTempFileName}", $"{ModFolder}/{LocalizationScriptName}", true);
+            var modScriptFailureReason = MoveFile($"{TempFolder}/{modScriptTempFileName}", $"{ModFolder}/{ModScriptName}", true);
+            var localizationScriptFailureReason = MoveFile($"{TempFolder}/{localizationScriptTempFileName}", $"{ModFolder}/{LocalizationScriptName}", true);
+
+            var failureReason = "";
+            if(modScriptFailureReason != null)
+            {
+                failureReason += modScriptFailureReason;
+            }
+            if(localizationScriptFailureReason != null)
+            {
+                failureReason += (failureReason.Length > 0 ? "\n" : "") + localizationScriptFailureReason;
+            }
+            if(failureReason.Length == 0)
+            {
+                failureReason = null;
+            }
+            return failureReason;
         }
         #endregion
 
         #region Private
-        private void AddModScriptCode(string modId)
-        {
-            File.AppendAllText($"{ModFolder}/{ModScriptName}", $"\n\n{GenerateModScriptLua(modId, GetModVariableName())}");
-        }
+        private string? AddModScriptCode(string modId) =>
+            WriteToFile($"{ModFolder}/{ModScriptName}", $"\n\n{GenerateModScriptLua(modId, GetModVariableName())}");
+
         private string GenerateModScriptLua(string modId, string modVarName)
         {
             string output = HEADER_BEGIN + "\n";
@@ -145,22 +180,61 @@ Managers.curl:get(""https://steamcommunity.com/sharedfiles/filedetails/changelog
             { "zh", "注意：您没有使用最新版本的 %s" },
         };
 
-        private void AddLocalizationScriptCode()
+        private string? AddLocalizationScriptCode()
         {
             string localizationText = File.ReadAllText($"{ModFolder}/{LocalizationScriptName}");
 
-            var detectTrailingCommaPattern = new Regex(",\\s*}\\s*$");
-            var prependWithComma = !detectTrailingCommaPattern.Match(localizationText).Success;
+            //var pattern = new Regex("((?:(?:\\w+\\s*=)|(?:return))\\s*{\\s*(\\w+\\s*=\\s*{(?:\\s*\\w+\\s*=\\s*.+,?\\s*\\r?\\n)+\\s*},?\\s*)+)}", RegexOptions.RightToLeft | RegexOptions.Multiline);
+            bool prependWithComma = true;
+            string result = null;
 
-            var replacementPattern = new Regex("(}\\s*)$");
-            var insertion = (prependWithComma ? "," : "") + GenerateLocalizationScriptLua() + "}";
+            var namedReturnPattern = new Regex("return\\s+(\\w+)\\s*$", RegexOptions.RightToLeft);
+            var namedReturnMatch = namedReturnPattern.Match(localizationText);
+            string? returnVarName = null;
+            if (namedReturnMatch.Success)
+            {
+                returnVarName = namedReturnMatch.Groups[1].Value;
+                var namedTablePattern = new Regex("(\\w+\\s*=\\s*{\\s*(\\w+\\s*=\\s*{(?:\\s*\\w+\\s*=\\s*.+,?\\s*\\r?\\n)+\\s*},?\\s*)+)}", RegexOptions.RightToLeft | RegexOptions.Multiline);
 
-            File.WriteAllText($"{ModFolder}/{LocalizationScriptName}", replacementPattern.Replace(localizationText, insertion));
+                var matches = namedTablePattern.Matches(localizationText).ToArray();
+                foreach (var namedTableMatch in matches)
+                {
+                    if (namedTableMatch.Value.StartsWith(returnVarName))
+                    {
+                        prependWithComma = !namedTableMatch.Groups[namedTableMatch.Groups.Count - 1].Value.Trim().EndsWith(",");
+                        result = localizationText.Replace(namedTableMatch.Groups[1].Value, $"{namedTableMatch.Groups[1].Value}{GenerateLocalizationScriptLua(prependWithComma)}");
+                        return WriteToFile($"{ModFolder}/{LocalizationScriptName}", result);
+                    }
+                }
+
+                return $"Found \"return {returnVarName}\" but could not find corresponding Localization table definition";
+            }
+
+            var tableReturnPattern = new Regex("return\\s+{", RegexOptions.RightToLeft);
+            var tableReturnMatch = tableReturnPattern.Match(localizationText);
+            if(!tableReturnMatch.Success)
+            {
+                return "Could not figure out how Localization table is returned";
+            }
+
+            var returnTablePattern = new Regex("(return\\s*{\\s*(\\w+\\s*=\\s*{(?:\\s*\\w+\\s*=\\s*.+,?\\s*\\r?\\n)+\\s*},?\\s*)+)}", RegexOptions.RightToLeft | RegexOptions.Multiline);
+            var returnTableMatch = returnTablePattern.Match(localizationText);
+
+
+            if(!returnTableMatch.Success)
+            {
+                return "Could not find where to put Localization definitions";
+            }
+            prependWithComma = !returnTableMatch.Groups[returnTableMatch.Groups.Count - 1].Value.Trim().EndsWith(",");
+            result = returnTablePattern.Replace(localizationText, $"$1{GenerateLocalizationScriptLua(prependWithComma)}\n}}", 1);
+            return WriteToFile($"{ModFolder}/{LocalizationScriptName}", result);
         }
-        private string GenerateLocalizationScriptLua()
+        private string GenerateLocalizationScriptLua(bool prependWithComma)
         {
+            var comma = prependWithComma ? "," : "";
+
             string output = "\t" + HEADER_BEGIN + "\n";
-            output += "\tMUC_fail = {\n";
+            output += $"\t{comma}MUC_fail = {{\n";
             foreach(var kvp in FailLocalizations)
             {
                 output += $"\t\t{kvp.Key} = \"{kvp.Value}\",\n";
@@ -173,6 +247,49 @@ Managers.curl:get(""https://steamcommunity.com/sharedfiles/filedetails/changelog
             output += "\t},\n\t" + HEADER_END + "\n";
             return output;
         }
+
+        private static string? WriteToFile(string path, string content)
+        {
+            try
+            {
+                File.WriteAllText(path, content);
+            }
+            catch(Exception ex)
+            {
+                return ex switch
+                {
+                    PathTooLongException => "File path too long",
+                    DirectoryNotFoundException => "Part of path not found",
+                    IOException => "Failed to write to file",
+                    UnauthorizedAccessException => "Do not have permission to write to file",
+                    _ => ex.Message,
+                };
+            }
+            return Success;
+        }
+
+        private static string? MoveFile(string source, string dest, bool overwrite)
+        {
+            try
+            {
+                File.Move(source, dest, overwrite);
+            }
+            catch (Exception ex)
+            {
+                return ex switch
+                {
+                    FileNotFoundException => "File not found",
+                    PathTooLongException => "File path too long",
+                    DirectoryNotFoundException => "Part of path not found",
+                    IOException => "Failed to write to file",
+                    UnauthorizedAccessException => "Do not have permission to write to file",
+                    _ => ex.Message,
+                };
+            }
+            return Success;
+        }
+
+        private static string? Success => null;
         #endregion
     }
 }
