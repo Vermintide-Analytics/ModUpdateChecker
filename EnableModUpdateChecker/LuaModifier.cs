@@ -129,12 +129,20 @@ Managers.curl:get(""https://steamcommunity.com/sharedfiles/filedetails/changelog
 
         private static readonly Dictionary<string, string> FailLocalizations = new Dictionary<string, string>()
         {
-            { "en", "Could not verify that you have the latest version of %s. Is it public on Steam?" }
+            { "en", "Could not verify that you have the latest version of %s. Is it public on Steam?" },
+            { "es", "No se pudo verificar que tienes la última versión de %s. ¿Es público en Steam?" },
+            { "fr", "Impossible de vérifier que vous disposez de la dernière version de %s. C'est public sur Steam ?" },
+            { "de", "Es konnte nicht überprüft werden, ob Sie über die neueste Version von %s verfügen. Ist es auf Steam öffentlich?" },
+            { "zh", "无法验证您是否拥有最新版本的 %s。 steam上是公开的吗？" },
         };
 
         private static readonly Dictionary<string, string> OutOfDateLocalizations = new Dictionary<string, string>()
         {
-            { "en", "NOTICE: You are not using the latest version of %s." }
+            { "en", "NOTICE: You are not using the latest version of %s." },
+            { "es", "AVISO: No estás usando la última versión de %s" },
+            { "fr", "AVIS : Vous n'utilisez pas la dernière version de %s" },
+            { "de", "HINWEIS: Sie verwenden nicht die neueste Version von %s" },
+            { "zh", "注意：您没有使用最新版本的 %s" },
         };
 
         private void AddLocalizationScriptCode()
