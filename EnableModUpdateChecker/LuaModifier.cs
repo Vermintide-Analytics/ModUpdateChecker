@@ -183,51 +183,78 @@ Managers.curl:get(""https://steamcommunity.com/sharedfiles/filedetails/changelog
         private string? AddLocalizationScriptCode()
         {
             string localizationText = File.ReadAllText($"{ModFolder}/{LocalizationScriptName}");
-
-            //var pattern = new Regex("((?:(?:\\w+\\s*=)|(?:return))\\s*{\\s*(\\w+\\s*=\\s*{(?:\\s*\\w+\\s*=\\s*.+,?\\s*\\r?\\n)+\\s*},?\\s*)+)}", RegexOptions.RightToLeft | RegexOptions.Multiline);
-            bool prependWithComma = true;
-            string result = null;
-
             var namedReturnPattern = new Regex("return\\s+(\\w+)\\s*$", RegexOptions.RightToLeft);
             var namedReturnMatch = namedReturnPattern.Match(localizationText);
-            string? returnVarName = null;
+            int startingIndex;
             if (namedReturnMatch.Success)
             {
-                returnVarName = namedReturnMatch.Groups[1].Value;
-                var namedTablePattern = new Regex("(\\w+\\s*=\\s*{\\s*(\\w+\\s*=\\s*{(?:\\s*\\w+\\s*=\\s*.+,?\\s*\\r?\\n)+\\s*},?\\s*)+)}", RegexOptions.RightToLeft | RegexOptions.Multiline);
-
-                var matches = namedTablePattern.Matches(localizationText).ToArray();
-                foreach (var namedTableMatch in matches)
+                var returnVarName = namedReturnMatch.Groups[1].Value;
+                var namedTablePattern = new Regex($"{returnVarName}\\s*=\\s*{{", RegexOptions.RightToLeft);
+                var namedTableMatch = namedTablePattern.Match(localizationText);
+                if (namedTableMatch.Success)
                 {
-                    if (namedTableMatch.Value.StartsWith(returnVarName))
-                    {
-                        prependWithComma = !namedTableMatch.Groups[namedTableMatch.Groups.Count - 1].Value.Trim().EndsWith(",");
-                        result = localizationText.Replace(namedTableMatch.Groups[1].Value, $"{namedTableMatch.Groups[1].Value}{GenerateLocalizationScriptLua(prependWithComma)}");
-                        return WriteToFile($"{ModFolder}/{LocalizationScriptName}", result);
-                    }
+                    startingIndex = localizationText.LastIndexOf(namedTableMatch.Value) + namedTableMatch.Value.Length;
+                }
+                else
+                {
+                    return $"Found \"return {returnVarName}\" but could not find corresponding Localization table definition";
+                }
+            }
+            else
+            {
+                var tableReturnPattern = new Regex("return\\s*{", RegexOptions.RightToLeft);
+                var tableReturnMatch = tableReturnPattern.Match(localizationText);
+                if (!tableReturnMatch.Success)
+                {
+                    return "Could not figure out how Localization table is returned";
                 }
 
-                return $"Found \"return {returnVarName}\" but could not find corresponding Localization table definition";
+                startingIndex = localizationText.LastIndexOf(tableReturnMatch.Value) + tableReturnMatch.Value.Length;
             }
 
-            var tableReturnPattern = new Regex("return\\s+{", RegexOptions.RightToLeft);
-            var tableReturnMatch = tableReturnPattern.Match(localizationText);
-            if(!tableReturnMatch.Success)
+            // Walk forwards in the text to find the final } of the localization table defintion. We will insert before that
+            var forwardWalkIndex = startingIndex;
+            var depth = 1;
+            var isInString = false;
+            for(;forwardWalkIndex < localizationText.Length && depth > 0; forwardWalkIndex++)
             {
-                return "Could not figure out how Localization table is returned";
+                switch(localizationText[forwardWalkIndex])
+                {
+                    case '"':
+                        isInString = !isInString;
+                        break;
+                    case '{':
+                        if (!isInString) depth++;
+                        break;
+                    case '}':
+                        if (!isInString) depth--;
+                        break;
+                }
             }
-
-            var returnTablePattern = new Regex("(return\\s*{\\s*(\\w+\\s*=\\s*{(?:\\s*\\w+\\s*=\\s*.+,?\\s*\\r?\\n)+\\s*},?\\s*)+)}", RegexOptions.RightToLeft | RegexOptions.Multiline);
-            var returnTableMatch = returnTablePattern.Match(localizationText);
-
-
-            if(!returnTableMatch.Success)
+            if (forwardWalkIndex >= localizationText.Length && depth > 0)
             {
-                return "Could not find where to put Localization definitions";
+                return "Could not find end of Localization table";
             }
-            prependWithComma = !returnTableMatch.Groups[returnTableMatch.Groups.Count - 1].Value.Trim().EndsWith(",");
-            result = returnTablePattern.Replace(localizationText, $"$1{GenerateLocalizationScriptLua(prependWithComma)}\n}}", 1);
-            return WriteToFile($"{ModFolder}/{LocalizationScriptName}", result);
+
+            // Do a quick walk backwards to figure out if we need to insert a comma before our new entries
+            var prependWithComma = true;
+            var doneBackwardsWalk = false;
+            for(int backwardWalkIndex = forwardWalkIndex - 2; backwardWalkIndex >= startingIndex && !doneBackwardsWalk; backwardWalkIndex--)
+            {
+                switch(localizationText[backwardWalkIndex])
+                {
+                    case ',': // Comma found
+                    case '{': // No comma, but no previous entries for which we would need a comma either
+                        prependWithComma = false;
+                        doneBackwardsWalk = true;
+                        break;
+                    case '}': // No comma found
+                        doneBackwardsWalk = true;
+                        break;
+                }
+            }
+
+            return WriteToFile($"{ModFolder}/{LocalizationScriptName}", localizationText.Insert(forwardWalkIndex - 1, GenerateLocalizationScriptLua(prependWithComma)));
         }
         private string GenerateLocalizationScriptLua(bool prependWithComma)
         {
