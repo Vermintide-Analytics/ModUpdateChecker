@@ -99,7 +99,7 @@ namespace EnableModUpdateChecker
 
         #region Private
         private string? AddModScriptCode(string modId) =>
-            WriteToFile($"{ModFolder}/{ModScriptName}", $"\n\n{GenerateModScriptLua(modId, GetModVariableName())}");
+            AppendToFile($"{ModFolder}/{ModScriptName}", $"\n\n{GenerateModScriptLua(modId, GetModVariableName())}");
 
         private string GenerateModScriptLua(string modId, string modVarName)
         {
@@ -282,6 +282,25 @@ Managers.curl:get(""https://steamcommunity.com/sharedfiles/filedetails/changelog
                 File.WriteAllText(path, content);
             }
             catch(Exception ex)
+            {
+                return ex switch
+                {
+                    PathTooLongException => "File path too long",
+                    DirectoryNotFoundException => "Part of path not found",
+                    IOException => "Failed to write to file",
+                    UnauthorizedAccessException => "Do not have permission to write to file",
+                    _ => ex.Message,
+                };
+            }
+            return Success;
+        }
+        private static string? AppendToFile(string path, string content)
+        {
+            try
+            {
+                File.AppendAllText(path, content);
+            }
+            catch (Exception ex)
             {
                 return ex switch
                 {
