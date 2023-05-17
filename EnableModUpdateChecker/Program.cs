@@ -6,6 +6,7 @@ namespace EnableModUpdateChecker
     {
         static string ModFolder { get; set; }
         static string TempFolder { get; set; }
+        static string BackupFolder { get; set; }
 
         static int Main(string[] args)
         {
@@ -22,6 +23,7 @@ namespace EnableModUpdateChecker
 
             ModFolder = $"{Environment.CurrentDirectory}/mods/{modName}";
             TempFolder = Directory.CreateDirectory($"{vmbFolder}/.muctemp").FullName;
+            BackupFolder = Directory.CreateDirectory($"{vmbFolder}/MUC_Backup").FullName;
 
             var modFile = $"{ModFolder}/{modName}.mod";
             if (!File.Exists(modFile))
@@ -46,7 +48,7 @@ namespace EnableModUpdateChecker
             var modScriptFileName = modScriptPathMatch.Groups[1] + ".lua";
             var localizationScriptFileName = localizationScriptPathMatch.Groups[1] + ".lua";
 
-            var luaMod = new LuaModifier(modName, ModFolder, TempFolder, modScriptFileName, localizationScriptFileName);
+            var luaMod = new LuaModifier(modName, ModFolder, TempFolder, BackupFolder, modScriptFileName, localizationScriptFileName);
 
             if(cleanup)
             {

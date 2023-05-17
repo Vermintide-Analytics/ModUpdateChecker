@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Reflection.Metadata;
+using System.Reflection.PortableExecutable;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
@@ -16,56 +17,94 @@ namespace EnableModUpdateChecker
 
         string ModName { get; set; }
 
+        string ModScriptPath { get; set; }
+        string LocalizationScriptPath { get; set; }
         string ModScriptName { get; set; }
         string LocalizationScriptName { get; set; }
 
         string TempFolder { get; set; }
+        string BackupFolder { get; set; }
         string ModFolder { get; set; }
 
-        public LuaModifier(string modName, string modFolder, string tempFolder, string modScriptName, string localizationScriptName)
+        public LuaModifier(string modName, string modFolder, string tempFolder, string backupFolder, string modScriptName, string localizationScriptName)
         {
             ModName = modName;
             ModFolder = modFolder;
             TempFolder = tempFolder;
-            ModScriptName = modScriptName;
-            LocalizationScriptName = localizationScriptName;
+            BackupFolder = backupFolder;
+
+            ModScriptPath = modScriptName;
+            LocalizationScriptPath = localizationScriptName;
+
+            ModScriptName = Path.GetFileName($"{ModFolder}/{ModScriptPath}");
+            LocalizationScriptName = Path.GetFileName($"{ModFolder}/{LocalizationScriptPath}");
         }
 
         #region Public
         public string? AddUpdateChecker(string modId, bool force)
         {
-            var modScriptTempFileName = new FileInfo($"{ModFolder}/{ModScriptName}").Name;
-            var localizationScriptTempFileName = new FileInfo($"{ModFolder}/{LocalizationScriptName}").Name;
-
-            if(!force && (File.Exists($"{TempFolder}/{modScriptTempFileName}") || File.Exists($"{TempFolder}/{localizationScriptTempFileName}")))
+            bool alreadyHaveMUCChangesModScript = false;
+            bool alreadyHaveMUCChangesLocalizationScript = false;
+            foreach(var line in File.ReadLines($"{ModFolder}/{ModScriptPath}"))
             {
-                return $"EnableModUpdateChecker did not properly clean up last time it was run. Please remove auto-generated code from the end of these files, then run this command again with -force\n{modScriptTempFileName}\n{localizationScriptTempFileName}";
+                if(line.Contains(HEADER_BEGIN))
+                {
+                    alreadyHaveMUCChangesModScript = true;
+                    break;
+                }
+            }
+            foreach (var line in File.ReadLines($"{ModFolder}/{LocalizationScriptPath}"))
+            {
+                if (line.Contains(HEADER_BEGIN))
+                {
+                    alreadyHaveMUCChangesLocalizationScript = true;
+                    break;
+                }
             }
 
-            // Backup scripts to our temp folder
-            File.Copy($"{ModFolder}/{ModScriptName}", $"{TempFolder}/{modScriptTempFileName}", true);
-            File.Copy($"{ModFolder}/{LocalizationScriptName}", $"{TempFolder}/{localizationScriptTempFileName}", true);
+            if (!force && (alreadyHaveMUCChangesModScript || alreadyHaveMUCChangesLocalizationScript))
+            {
+                var filesText = alreadyHaveMUCChangesModScript ? $"\n{ModScriptName}" : "";
+                filesText += alreadyHaveMUCChangesLocalizationScript ? $"\n{LocalizationScriptName}" : "";
+                return $"The files listed below already contain edits from EnableModUpdateChecker. Please remove auto-generated code from the end of these files, or run this command again with -force.{filesText}";
+            }
+
+            BackupFile($"{ModFolder}/{ModScriptPath}", false);
+            BackupFile($"{ModFolder}/{LocalizationScriptPath}", false);
+
+            // -force will be true for either of these
+            var forceCleanupFailureReason = "";
+            if (alreadyHaveMUCChangesModScript)
+            {
+                forceCleanupFailureReason += "\n" + RemoveMUCChanges($"{ModFolder}/{ModScriptPath}", false) ?? "";
+            }
+            if(alreadyHaveMUCChangesLocalizationScript)
+            {
+                forceCleanupFailureReason += "\n" + RemoveMUCChanges($"{ModFolder}/{LocalizationScriptPath}", false) ?? "";
+            }
+
+            if(!string.IsNullOrWhiteSpace(forceCleanupFailureReason))
+            {
+                return $"Failed to clean up existing MUC modifications. Reason: {forceCleanupFailureReason}";
+            }
 
             // Modify lua in-place
             var modScriptFailureReason = AddModScriptCode(modId);
             if(modScriptFailureReason != null)
             {
-                File.Delete($"{TempFolder}/{modScriptTempFileName}");
-                File.Delete($"{TempFolder}/{localizationScriptTempFileName}");
-
-                return $"Failed to add lua to {ModFolder}/{ModScriptName}. Reason: {modScriptFailureReason}";
+                return $"Failed to add lua to {ModFolder}/{ModScriptPath}. Reason: {modScriptFailureReason}";
             }
             var localizationFailureReason = AddLocalizationScriptCode();
             if(localizationFailureReason != null)
             {
                 // If we get here, we're aborting but we already modified the other lua file, so restore it
-                string restoreFailureReason = MoveFile($"{TempFolder}/{modScriptTempFileName}", $"{ModFolder}/{ModScriptName}", true);
-                if(restoreFailureReason != null)
+                var cleanupFailureReason = RemoveMUCChanges($"{ModFolder}/{ModScriptPath}", false);
+
+                if(cleanupFailureReason != null)
                 {
-                    localizationFailureReason += $"\nWARNING: {ModFolder}/{ModScriptName} WAS MODIFIED AND THE CHANGES COULD NOT BE REVERTED. MANUAL ACTION REQUIRED.";
+                    localizationFailureReason += $"\nWARNING: {ModFolder}/{ModScriptPath} WAS MODIFIED AND THE CHANGES COULD NOT BE REVERTED. MANUAL ACTION REQUIRED.";
                 }
-                File.Delete($"{TempFolder}/{localizationScriptTempFileName}");
-                return $"Failed to add lua to {ModFolder}/{LocalizationScriptName}. Reason: {localizationFailureReason}";
+                return $"Failed to add lua to {ModFolder}/{LocalizationScriptPath}. Reason: {localizationFailureReason}";
             }
 
             return Success;
@@ -73,35 +112,42 @@ namespace EnableModUpdateChecker
 
         public string? RestoreOriginalLua()
         {
-            var modScriptTempFileName = new FileInfo($"{ModFolder}/{ModScriptName}").Name;
-            var localizationScriptTempFileName = new FileInfo($"{ModFolder}/{LocalizationScriptName}").Name;
+            var cleanupFailureReason = "";
+            cleanupFailureReason += "\n" + RemoveMUCChanges($"{ModFolder}/{ModScriptPath}", false) ?? "";
+            cleanupFailureReason += "\n" + RemoveMUCChanges($"{ModFolder}/{LocalizationScriptPath}", true) ?? "";
 
-            // Restore scripts from our temp folder
-            var modScriptFailureReason = MoveFile($"{TempFolder}/{modScriptTempFileName}", $"{ModFolder}/{ModScriptName}", true);
-            var localizationScriptFailureReason = MoveFile($"{TempFolder}/{localizationScriptTempFileName}", $"{ModFolder}/{LocalizationScriptName}", true);
+            if (!string.IsNullOrWhiteSpace(cleanupFailureReason))
+            {
+                return $"Failed to clean up MUC modifications. Reason: {cleanupFailureReason}";
+            }
 
-            var failureReason = "";
-            if(modScriptFailureReason != null)
-            {
-                failureReason += modScriptFailureReason;
-            }
-            if(localizationScriptFailureReason != null)
-            {
-                failureReason += (failureReason.Length > 0 ? "\n" : "") + localizationScriptFailureReason;
-            }
-            if(failureReason.Length == 0)
-            {
-                failureReason = null;
-            }
-            return failureReason;
+            return Success;
         }
         #endregion
 
         #region Private
-        private string? AddModScriptCode(string modId) =>
-            AppendToFile($"{ModFolder}/{ModScriptName}", $"\n\n{GenerateModScriptLua(modId, GetModVariableName())}");
+        private string? BackupFile(string filePath, bool modified) => CopyFile(filePath, GetBackupFilePath(filePath, modified), true);
 
-        private string GenerateModScriptLua(string modId, string modVarName)
+        private string? GetBackupFilePath(string filePath, bool modified) => $"{BackupFolder}/{Path.GetFileName(filePath).Replace(".lua", "") + (modified ? "_MODIFIED" : "") + ".lua"}";
+
+        private string? AddModScriptCode(string modId)
+        {
+            var toAppend = $"{GenerateModScriptLua(modId, GetModVariableName())}";
+
+            var lastLine = File.ReadLines($"{ModFolder}/{ModScriptPath}").LastOrDefault();
+            if (lastLine is null)
+            {
+                return $"Could not determine if {ModScriptPath} alread has some empty space at the end of the file.";
+            }
+            if(!string.IsNullOrWhiteSpace(lastLine))
+            {
+                toAppend = "\n" + toAppend;
+            }
+
+            return AppendToFile($"{ModFolder}/{ModScriptPath}", toAppend);
+        }
+
+        private static string GenerateModScriptLua(string modId, string modVarName)
         {
             string output = HEADER_BEGIN + "\n";
 
@@ -144,14 +190,14 @@ Managers.curl:get(""https://steamcommunity.com/sharedfiles/filedetails/changelog
             }
             output += code;
 
-            output += "\n" + HEADER_END + "\n";
+            output += "\n" + HEADER_END;
             return output;
         }
 
         private string? GetModVariableName()
         {
             var pattern = new Regex($"\\s*local\\s+(\\w+)\\s*=\\s*get_mod\\(\"{ModName}\"\\)");
-            foreach(var line in File.ReadLines($"{ModFolder}/{ModScriptName}"))
+            foreach(var line in File.ReadLines($"{ModFolder}/{ModScriptPath}"))
             {
                 var match = pattern.Match(line);
                 if(match.Success)
@@ -182,7 +228,7 @@ Managers.curl:get(""https://steamcommunity.com/sharedfiles/filedetails/changelog
 
         private string? AddLocalizationScriptCode()
         {
-            string localizationText = File.ReadAllText($"{ModFolder}/{LocalizationScriptName}");
+            string localizationText = File.ReadAllText($"{ModFolder}/{LocalizationScriptPath}");
             var namedReturnPattern = new Regex("return\\s+(\\w+)\\s*$", RegexOptions.RightToLeft);
             var namedReturnMatch = namedReturnPattern.Match(localizationText);
             int startingIndex;
@@ -212,7 +258,7 @@ Managers.curl:get(""https://steamcommunity.com/sharedfiles/filedetails/changelog
                 startingIndex = localizationText.LastIndexOf(tableReturnMatch.Value) + tableReturnMatch.Value.Length;
             }
 
-            // Walk forwards in the text to find the final } of the localization table defintion. We will insert before that
+            // Walk forwards in the text to find the closing } of the localization table defintion. We will insert before that
             var forwardWalkIndex = startingIndex;
             var depth = 1;
             var isInString = false;
@@ -239,7 +285,10 @@ Managers.curl:get(""https://steamcommunity.com/sharedfiles/filedetails/changelog
             // Do a quick walk backwards to figure out if we need to insert a comma before our new entries
             var prependWithComma = true;
             var doneBackwardsWalk = false;
-            for(int backwardWalkIndex = forwardWalkIndex - 2; backwardWalkIndex >= startingIndex && !doneBackwardsWalk; backwardWalkIndex--)
+            var nonWhitespacePattern = new Regex("[^\\s]");
+            var foundNonWhitespace = false;
+            var needNewLine = true;
+            for (int backwardWalkIndex = forwardWalkIndex - 2; backwardWalkIndex >= startingIndex && !doneBackwardsWalk; backwardWalkIndex--)
             {
                 switch(localizationText[backwardWalkIndex])
                 {
@@ -251,16 +300,23 @@ Managers.curl:get(""https://steamcommunity.com/sharedfiles/filedetails/changelog
                     case '}': // No comma found
                         doneBackwardsWalk = true;
                         break;
+                    case '\n' when !foundNonWhitespace:
+                        needNewLine = false;
+                        break;
+                    case var character when nonWhitespacePattern.IsMatch($"{character}"):
+                        foundNonWhitespace = true;
+                        break;
                 }
             }
 
-            return WriteToFile($"{ModFolder}/{LocalizationScriptName}", localizationText.Insert(forwardWalkIndex - 1, GenerateLocalizationScriptLua(prependWithComma)));
+            return WriteToFile($"{ModFolder}/{LocalizationScriptPath}", localizationText.Insert(forwardWalkIndex - 1, GenerateLocalizationScriptLua(prependWithComma, needNewLine)));
         }
-        private string GenerateLocalizationScriptLua(bool prependWithComma)
+        private string GenerateLocalizationScriptLua(bool prependWithComma, bool prependWithNewline)
         {
+            var newLine = prependWithNewline ? "\n" : "";
             var comma = prependWithComma ? "," : "";
 
-            string output = "\t" + HEADER_BEGIN + "\n";
+            string output = $"{newLine}\t" + HEADER_BEGIN + "\n";
             output += $"\t{comma}MUC_fail = {{\n";
             foreach(var kvp in FailLocalizations)
             {
@@ -275,6 +331,85 @@ Managers.curl:get(""https://steamcommunity.com/sharedfiles/filedetails/changelog
             return output;
         }
 
+        // This function assumes that the MUC code has its own lines, which is a risk of data loss if the user modifies it.
+        private string? RemoveMUCChanges(string filePath, bool preserveEmptyLines)
+        {
+            BackupFile(filePath, true);
+
+            var fileName = Path.GetFileName(filePath);
+            var tempFilePath = $"{TempFolder}/{fileName}";
+            
+            {
+                using var reader = new StreamReader(filePath);
+                using var writer = new StreamWriter(tempFilePath);
+                bool isMUCCode = false;
+                bool detectedAnyMUCCode = false;
+                while (!reader.EndOfStream)
+                {
+                    var line = reader.ReadLine();
+                    if (line.Contains(HEADER_BEGIN))
+                    {
+                        isMUCCode = true;
+                        detectedAnyMUCCode = true;
+                        // Special case, if for some reason there is content before the header comment, assume it's the user's and don't remove it
+                        var beforeHeader = line.Substring(0, line.IndexOf(HEADER_BEGIN));
+                        if(!string.IsNullOrWhiteSpace(beforeHeader))
+                        {
+                            writer.WriteLine(beforeHeader);
+                        }
+                    }
+                    if (!isMUCCode && (!string.IsNullOrWhiteSpace(line) || !detectedAnyMUCCode || preserveEmptyLines))
+                    {
+                        writer.WriteLine(line);
+                    }
+                    if (line.Contains(HEADER_END))
+                    {
+                        if (!isMUCCode)
+                        {
+                            return $"Detected END of MUC code without a BEGINNING in {filePath}";
+                        }
+                        isMUCCode = false;
+                    }
+                }
+
+                // If we get to the file without seeing a final HEADER_END, consider that an error and don't go forward
+                if (isMUCCode)
+                {
+                    return $"Detected BEGINNING of MUC code without an END in {filePath}";
+                }
+
+                if(!detectedAnyMUCCode)
+                {
+                    // Nothing to do, consider it a success
+                    return Success;
+                }
+
+                writer.Flush();
+            }
+
+            return MoveFile(tempFilePath, filePath, true);
+        }
+
+        private static string? CopyFile(string source, string destination, bool overwrite)
+        {
+            try
+            {
+                File.Copy(source, destination, overwrite);
+            }
+            catch (Exception ex)
+            {
+                return ex switch
+                {
+                    PathTooLongException => "File path too long",
+                    DirectoryNotFoundException => "Part of path not found",
+                    FileNotFoundException => "File not found",
+                    IOException => "Failed to write to file",
+                    UnauthorizedAccessException => "Do not have permission to write to file",
+                    _ => ex.Message,
+                };
+            }
+            return Success;
+        }
         private static string? WriteToFile(string path, string content)
         {
             try
