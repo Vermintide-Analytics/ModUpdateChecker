@@ -168,7 +168,7 @@ namespace EnableModUpdateChecker
 	if not first_update_index then %MOD_VAR_NAME%:echo(%MOD_VAR_NAME%:localize(""MUC_fail"", %MOD_VAR_NAME%:get_readable_name())) return end
 	local ours = { %UPLOAD_DATE_TIME% }
 	local year_p, no_year_p = ""(%d+)%. (%a+)%.? (%d+) um (%d+):(%d+)"", ""(%d+)%. (%a+)%.? um (%d+):(%d+)""
-	local month_lut = {Jan=1,Feb=2,[""März""]=3,Apr=4,Mai=5,Jun=6,Jul=7,Aug=8,Sep=9,Okt=10,Nov=11,Dez=12}
+	local month_lut = {Jan=1,[""Jän""]=1,Feb=2,[""März""]=3,Apr=4,Mai=5,Jun=6,Juni=6,Jul=7,Juli=7,Aug=8,Sep=9,Sept=9,Okt=10,Nov=11,Dez=12}
 	local substr = data:sub(first_update_index, first_update_index+30)
 	local day, month, year, hour, minute = substr:match(year_p)
 	if not day then year, day, month, hour, minute = os.date(""%Y""), substr:match(no_year_p) end
