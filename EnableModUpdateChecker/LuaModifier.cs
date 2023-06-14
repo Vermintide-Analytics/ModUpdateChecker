@@ -163,24 +163,26 @@ namespace EnableModUpdateChecker
             };
 
             string code = @"local mod_update_check_callback = function(success, code, headers, data, userdata)
-	if not data then %MOD_VAR_NAME%:echo(%MOD_VAR_NAME%:localize(""MUC_fail"", %MOD_VAR_NAME%:get_readable_name())) return end
-	local first_update_index = data:find(""Update: "")
-	if not first_update_index then %MOD_VAR_NAME%:echo(%MOD_VAR_NAME%:localize(""MUC_fail"", %MOD_VAR_NAME%:get_readable_name())) return end
-	local ours = { %UPLOAD_DATE_TIME% }
-	local year_p, no_year_p = ""(%d+)%. (%a+)%.? (%d+) um (%d+):(%d+)"", ""(%d+)%. (%a+)%.? um (%d+):(%d+)""
-	local month_lut = {Jan=1,[""Jän""]=1,Feb=2,[""März""]=3,Apr=4,Mai=5,Jun=6,Juni=6,Jul=7,Juli=7,Aug=8,Sep=9,Sept=9,Okt=10,Nov=11,Dez=12}
-	local substr = data:sub(first_update_index, first_update_index+30)
-	local day, month, year, hour, minute = substr:match(year_p)
-	if not day then year, day, month, hour, minute = os.date(""%Y""), substr:match(no_year_p) end
-	local latest = { tonumber(year),month_lut[month],tonumber(day),tonumber(hour),tonumber(minute) }
-	local MUC_get_up_to_date = function(table_ours, table_latest)
-		for i = 1, 5 do if table_ours[i] > table_latest[i] then return true elseif table_ours[i] < table_latest[i] then return false end end
-		return true
-	end
-	%MOD_VAR_NAME%.up_to_date = MUC_get_up_to_date(ours, latest)
-	if not %MOD_VAR_NAME%.up_to_date then
-		%MOD_VAR_NAME%:echo(%MOD_VAR_NAME%:localize(""MUC_out_of_date"", %MOD_VAR_NAME%:get_readable_name()))
-	end
+    mod:pcall(function()
+	    if not data then %MOD_VAR_NAME%:echo(%MOD_VAR_NAME%:localize(""MUC_fail"", %MOD_VAR_NAME%:get_readable_name())) return end
+	    local first_update_index = data:find(""Update: "")
+	    if not first_update_index then %MOD_VAR_NAME%:echo(%MOD_VAR_NAME%:localize(""MUC_fail"", %MOD_VAR_NAME%:get_readable_name())) return end
+	    local ours = { %UPLOAD_DATE_TIME% }
+	    local year_p, no_year_p = ""(%d+)%. (%a+)%.? (%d+) um (%d+):(%d+)"", ""(%d+)%. (%a+)%.? um (%d+):(%d+)""
+	    local month_lut = {Jan=1,[""Jän""]=1,Feb=2,[""März""]=3,Apr=4,Mai=5,Jun=6,Juni=6,Jul=7,Juli=7,Aug=8,Sep=9,Sept=9,Okt=10,Nov=11,Dez=12}
+	    local substr = data:sub(first_update_index, first_update_index+30)
+	    local day, month, year, hour, minute = substr:match(year_p)
+	    if not day then year, day, month, hour, minute = os.date(""%Y""), substr:match(no_year_p) end
+	    local latest = { tonumber(year),month_lut[month],tonumber(day),tonumber(hour),tonumber(minute) }
+	    local MUC_get_up_to_date = function(table_ours, table_latest)
+		    for i = 1, 5 do if table_ours[i] > table_latest[i] then return true elseif table_ours[i] < table_latest[i] then return false end end
+		    return true
+	    end
+	    %MOD_VAR_NAME%.up_to_date = MUC_get_up_to_date(ours, latest)
+	    if not %MOD_VAR_NAME%.up_to_date then
+		    %MOD_VAR_NAME%:echo(%MOD_VAR_NAME%:localize(""MUC_out_of_date"", %MOD_VAR_NAME%:get_readable_name()))
+	    end
+    end)
 end
 Managers.curl:get(""https://steamcommunity.com/sharedfiles/filedetails/changelog/%MOD_ID%"", {""Accept-Language: de;q=0.5""}, mod_update_check_callback)";
 
