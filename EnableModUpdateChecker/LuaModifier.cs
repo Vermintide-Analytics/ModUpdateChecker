@@ -41,7 +41,7 @@ namespace EnableModUpdateChecker
         }
 
         #region Public
-        public string? AddUpdateChecker(string modId, bool force)
+        public string? AddUpdateChecker(string modId, bool force, bool noChat, bool alwaysChat)
         {
             bool alreadyHaveMUCChangesModScript = false;
             bool alreadyHaveMUCChangesLocalizationScript = false;
@@ -89,12 +89,16 @@ namespace EnableModUpdateChecker
             }
 
             // Modify lua in-place
-            var modScriptFailureReason = AddModScriptCode(modId);
+            var modScriptFailureReason = AddModScriptCode(modId, noChat, alwaysChat);
             if(modScriptFailureReason != null)
             {
                 return $"Failed to add lua to {ModFolder}/{ModScriptPath}. Reason: {modScriptFailureReason}";
             }
-            var localizationFailureReason = AddLocalizationScriptCode();
+            if(noChat)
+            {
+                return Success;
+            }
+            var localizationFailureReason = AddLocalizationScriptCode(alwaysChat);
             if(localizationFailureReason != null)
             {
                 // If we get here, we're aborting but we already modified the other lua file, so restore it
@@ -130,9 +134,9 @@ namespace EnableModUpdateChecker
 
         private string? GetBackupFilePath(string filePath, bool modified) => $"{BackupFolder}/{Path.GetFileName(filePath).Replace(".lua", "") + (modified ? "_MODIFIED" : "") + ".lua"}";
 
-        private string? AddModScriptCode(string modId)
+        private string? AddModScriptCode(string modId, bool noChat, bool alwaysChat)
         {
-            var toAppend = $"{GenerateModScriptLua(modId, GetModVariableName())}";
+            var toAppend = $"{GenerateModScriptLua(modId, GetModVariableName(), noChat, alwaysChat)}";
 
             var lastLine = File.ReadLines($"{ModFolder}/{ModScriptPath}").LastOrDefault();
             if (lastLine is null)
@@ -147,13 +151,33 @@ namespace EnableModUpdateChecker
             return AppendToFile($"{ModFolder}/{ModScriptPath}", toAppend);
         }
 
-        private static string GenerateModScriptLua(string modId, string modVarName)
+        private static string GenerateModScriptLua(string modId, string modVarName, bool noChat, bool alwaysChat)
         {
             string output = HEADER_BEGIN + "\n";
 
             var upload = DateTime.UtcNow.AddMinutes(2);
 
             var uploadDateTimeString = $"{upload.Year},{upload.Month},{upload.Day},{upload.Hour},{upload.Minute}";
+
+            var chatOutput = @"
+	    if not %MOD_VAR_NAME%.up_to_date then
+		    %MOD_VAR_NAME%:echo(%MOD_VAR_NAME%:localize(""MUC_out_of_date"", %MOD_VAR_NAME%:get_readable_name()))
+	    end";
+
+            if(noChat)
+            {
+                chatOutput = "";
+            }
+            else if(alwaysChat)
+            {
+                chatOutput = @"
+	    if not %MOD_VAR_NAME%.up_to_date then
+		    %MOD_VAR_NAME%:echo(%MOD_VAR_NAME%:localize(""MUC_out_of_date"", %MOD_VAR_NAME%:get_readable_name()))
+	    else
+            %MOD_VAR_NAME%:echo(%MOD_VAR_NAME%:localize(""MUC_up_to_date"", %MOD_VAR_NAME%:get_readable_name()))
+        end";
+			}
+            
 
             var variables = new Dictionary<string, string>()
             {
@@ -178,11 +202,8 @@ namespace EnableModUpdateChecker
 		    for i = 1, 5 do if table_ours[i] > table_latest[i] then return true elseif table_ours[i] < table_latest[i] then return false end end
 		    return true
 	    end
-	    %MOD_VAR_NAME%.up_to_date = MUC_get_up_to_date(ours, latest)
-	    if not %MOD_VAR_NAME%.up_to_date then
-		    %MOD_VAR_NAME%:echo(%MOD_VAR_NAME%:localize(""MUC_out_of_date"", %MOD_VAR_NAME%:get_readable_name()))
-	    end
-    end)
+	    %MOD_VAR_NAME%.up_to_date = MUC_get_up_to_date(ours, latest)" + chatOutput + @"
+	end)
 end
 Managers.curl:get(""https://steamcommunity.com/sharedfiles/filedetails/changelog/%MOD_ID%"", {""Accept-Language: de;q=0.5""}, mod_update_check_callback)";
 
@@ -228,7 +249,17 @@ Managers.curl:get(""https://steamcommunity.com/sharedfiles/filedetails/changelog
             { "zh", "注意：您没有使用最新版本的 %s" },
         };
 
-        private string? AddLocalizationScriptCode()
+
+		private static readonly Dictionary<string, string> UpToDateLocalizations = new Dictionary<string, string>()
+		{
+			{ "en", "You have the latest version of %s." },
+			{ "es", "Tienes la última versión del %s" },
+			{ "fr", "Vous avez la dernière version du %s" },
+			{ "de", "Sie haben die neueste Version von %s" },
+			{ "zh", "你有最新版本的 %s" },
+		};
+
+		private string? AddLocalizationScriptCode(bool alwaysChat)
         {
             string localizationText = File.ReadAllText($"{ModFolder}/{LocalizationScriptPath}");
             var namedReturnPattern = new Regex("return\\s+(\\w+)\\s*$", RegexOptions.RightToLeft);
@@ -311,9 +342,9 @@ Managers.curl:get(""https://steamcommunity.com/sharedfiles/filedetails/changelog
                 }
             }
 
-            return WriteToFile($"{ModFolder}/{LocalizationScriptPath}", localizationText.Insert(forwardWalkIndex - 1, GenerateLocalizationScriptLua(prependWithComma, needNewLine)));
+            return WriteToFile($"{ModFolder}/{LocalizationScriptPath}", localizationText.Insert(forwardWalkIndex - 1, GenerateLocalizationScriptLua(prependWithComma, needNewLine, alwaysChat)));
         }
-        private string GenerateLocalizationScriptLua(bool prependWithComma, bool prependWithNewline)
+        private string GenerateLocalizationScriptLua(bool prependWithComma, bool prependWithNewline, bool alwaysChat)
         {
             var newLine = prependWithNewline ? "\n" : "";
             var comma = prependWithComma ? "," : "";
@@ -328,8 +359,16 @@ Managers.curl:get(""https://steamcommunity.com/sharedfiles/filedetails/changelog
             foreach(var kvp in OutOfDateLocalizations)
             {
                 output += $"\t\t{kvp.Key} = \"{kvp.Value}\",\n";
-            }
-            output += "\t},\n\t" + HEADER_END + "\n";
+			}
+            if(alwaysChat)
+            {
+				output += "\t},\n\tMUC_up_to_date = {\n";
+				foreach (var kvp in UpToDateLocalizations)
+				{
+					output += $"\t\t{kvp.Key} = \"{kvp.Value}\",\n";
+				}
+			}
+			output += "\t},\n\t" + HEADER_END + "\n";
             return output;
         }
 

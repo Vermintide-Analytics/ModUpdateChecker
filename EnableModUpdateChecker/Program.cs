@@ -8,13 +8,22 @@ namespace EnableModUpdateChecker
         static string TempFolder { get; set; }
         static string BackupFolder { get; set; }
 
-        static int Main(string[] args)
+        static async Task<int> Main(string[] args)
         {
             var modName = args[0];
             var cleanup = args.Contains("-cleanup");
             var force = args.Contains("-force");
 
-            var vmbFolder = GetVmbFolderPath();
+			var noChat = args.Contains("-nochat");
+			var alwaysChat = args.Contains("-alwayschat");
+
+            if(noChat && alwaysChat)
+            {
+                Console.Error.WriteLine("You cannot provide both -nochat and -alwayschat flags. MUC is not making any changes!");
+                return 1;
+            }
+
+			var vmbFolder = GetVmbFolderPath();
             if(vmbFolder is null)
             {
                 Console.Error.WriteLine("Could not find VMB folder.");
@@ -70,7 +79,7 @@ namespace EnableModUpdateChecker
                     Console.Error.WriteLine("Could not read mod ID from itemV2.cfg");
                     return 1;
                 }
-                var failureReason = luaMod.AddUpdateChecker(modId, force);
+                var failureReason = luaMod.AddUpdateChecker(modId, force, noChat, alwaysChat);
                 if(failureReason != null)
                 {
                     Console.Error.WriteLine($"FAILED TO ADD MOD UPDATE CHECKER CODE:\n{failureReason}");
