@@ -151,44 +151,46 @@ namespace EnableModUpdateChecker
             return AppendToFile($"{ModFolder}/{ModScriptPath}", toAppend);
         }
 
-        private static string GenerateModScriptLua(string modId, string modVarName, bool noChat, bool alwaysChat)
-        {
-            string output = HEADER_BEGIN + "\n";
+		private static string GenerateModScriptLua(string modId, string modVarName, bool noChat, bool alwaysChat)
+		{
+			string output = HEADER_BEGIN + "\n";
 
-            var upload = DateTime.UtcNow.AddMinutes(2);
+			var upload = DateTime.UtcNow.AddMinutes(2);
 
-            var uploadDateTimeString = $"{upload.Year},{upload.Month},{upload.Day},{upload.Hour},{upload.Minute}";
+			var uploadDateTimeString = $"{upload.Year},{upload.Month},{upload.Day},{upload.Hour},{upload.Minute}";
 
-            var chatOutput = @"
+			var chatOutput = @"
 	    if not %MOD_VAR_NAME%.up_to_date then
 		    %MOD_VAR_NAME%:echo(%MOD_VAR_NAME%:localize(""MUC_out_of_date"", %MOD_VAR_NAME%:get_readable_name()))
 	    end";
+			var onFail = "%MOD_VAR_NAME%:echo(%MOD_VAR_NAME%:localize(\"MUC_fail\", %MOD_VAR_NAME%:get_readable_name()))";
 
-            if(noChat)
-            {
-                chatOutput = "";
-            }
-            else if(alwaysChat)
-            {
-                chatOutput = @"
+			if (noChat)
+			{
+				chatOutput = "";
+				onFail = "";
+			}
+			else if (alwaysChat)
+			{
+				chatOutput = @"
 	    if not %MOD_VAR_NAME%.up_to_date then
 		    %MOD_VAR_NAME%:echo(%MOD_VAR_NAME%:localize(""MUC_out_of_date"", %MOD_VAR_NAME%:get_readable_name()))
 	    else
             %MOD_VAR_NAME%:echo(%MOD_VAR_NAME%:localize(""MUC_up_to_date"", %MOD_VAR_NAME%:get_readable_name()))
         end";
 			}
-            
 
-            var variables = new Dictionary<string, string>()
-            {
-                { "%UPLOAD_DATE_TIME%", uploadDateTimeString },
-                { "%MOD_ID%", modId },
-                { "%MOD_VAR_NAME%", modVarName },
-            };
 
-            string code = @"local mod_update_check_callback = function(success, code, headers, data, userdata)
+			var variables = new Dictionary<string, string>()
+			{
+				{ "%UPLOAD_DATE_TIME%", uploadDateTimeString },
+				{ "%MOD_ID%", modId },
+				{ "%MOD_VAR_NAME%", modVarName },
+			};
+
+			string code = @"local mod_update_check_callback = function(success, code, headers, data, userdata)
     mod:pcall(function()
-	    if not data then %MOD_VAR_NAME%:echo(%MOD_VAR_NAME%:localize(""MUC_fail"", %MOD_VAR_NAME%:get_readable_name())) return end
+	    if not data then " + onFail + @" return end
 	    local first_update_index = data:find(""Update: "")
 	    if not first_update_index then %MOD_VAR_NAME%:echo(%MOD_VAR_NAME%:localize(""MUC_fail"", %MOD_VAR_NAME%:get_readable_name())) return end
 	    local ours = { %UPLOAD_DATE_TIME% }
@@ -207,17 +209,17 @@ namespace EnableModUpdateChecker
 end
 Managers.curl:get(""https://steamcommunity.com/sharedfiles/filedetails/changelog/%MOD_ID%"", {""Accept-Language: de;q=0.5""}, mod_update_check_callback)";
 
-            foreach(var kvp in variables)
-            {
-                code = code.Replace(kvp.Key, kvp.Value);
-            }
-            output += code;
+			foreach (var kvp in variables)
+			{
+				code = code.Replace(kvp.Key, kvp.Value);
+			}
+			output += code;
 
-            output += "\n" + HEADER_END;
-            return output;
-        }
+			output += "\n" + HEADER_END;
+			return output;
+		}
 
-        private string? GetModVariableName()
+		private string? GetModVariableName()
         {
             var pattern = new Regex($"\\s*local\\s+(\\w+)\\s*=\\s*get_mod\\(\"{ModName}\"\\)");
             foreach(var line in File.ReadLines($"{ModFolder}/{ModScriptPath}"))
