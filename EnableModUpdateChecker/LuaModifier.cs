@@ -94,7 +94,11 @@ namespace EnableModUpdateChecker
             {
                 return $"Failed to add lua to {ModFolder}/{ModScriptPath}. Reason: {modScriptFailureReason}";
             }
-            var localizationFailureReason = AddLocalizationScriptCode(alwaysChat, noChat);
+            if(noChat)
+            {
+                return Success;
+            }
+            var localizationFailureReason = AddLocalizationScriptCode(alwaysChat);
             if(localizationFailureReason != null)
             {
                 // If we get here, we're aborting but we already modified the other lua file, so restore it
@@ -255,7 +259,7 @@ Managers.curl:get(""https://steamcommunity.com/sharedfiles/filedetails/changelog
 			{ "zh", "你有最新版本的 %s" },
 		};
 
-		private string? AddLocalizationScriptCode(bool alwaysChat, bool noChat)
+		private string? AddLocalizationScriptCode(bool alwaysChat)
         {
             string localizationText = File.ReadAllText($"{ModFolder}/{LocalizationScriptPath}");
             var namedReturnPattern = new Regex("return\\s+(\\w+)\\s*$", RegexOptions.RightToLeft);
@@ -338,9 +342,9 @@ Managers.curl:get(""https://steamcommunity.com/sharedfiles/filedetails/changelog
                 }
             }
 
-            return WriteToFile($"{ModFolder}/{LocalizationScriptPath}", localizationText.Insert(forwardWalkIndex - 1, GenerateLocalizationScriptLua(prependWithComma, needNewLine, alwaysChat, noChat)));
+            return WriteToFile($"{ModFolder}/{LocalizationScriptPath}", localizationText.Insert(forwardWalkIndex - 1, GenerateLocalizationScriptLua(prependWithComma, needNewLine, alwaysChat)));
         }
-        private string GenerateLocalizationScriptLua(bool prependWithComma, bool prependWithNewline, bool alwaysChat, bool noChat)
+        private string GenerateLocalizationScriptLua(bool prependWithComma, bool prependWithNewline, bool alwaysChat)
         {
             var newLine = prependWithNewline ? "\n" : "";
             var comma = prependWithComma ? "," : "";
@@ -351,20 +355,17 @@ Managers.curl:get(""https://steamcommunity.com/sharedfiles/filedetails/changelog
             {
                 output += $"\t\t{kvp.Key} = \"{kvp.Value}\",\n";
             }
-            if(!noChat)
-			{
-				output += "\t},\n\tMUC_out_of_date = {\n";
-				foreach (var kvp in OutOfDateLocalizations)
+            output += "\t},\n\tMUC_out_of_date = {\n";
+            foreach(var kvp in OutOfDateLocalizations)
+            {
+                output += $"\t\t{kvp.Key} = \"{kvp.Value}\",\n";
+			}
+            if(alwaysChat)
+            {
+				output += "\t},\n\tMUC_up_to_date = {\n";
+				foreach (var kvp in UpToDateLocalizations)
 				{
 					output += $"\t\t{kvp.Key} = \"{kvp.Value}\",\n";
-				}
-				if (alwaysChat)
-				{
-					output += "\t},\n\tMUC_up_to_date = {\n";
-					foreach (var kvp in UpToDateLocalizations)
-					{
-						output += $"\t\t{kvp.Key} = \"{kvp.Value}\",\n";
-					}
 				}
 			}
 			output += "\t},\n\t" + HEADER_END + "\n";
