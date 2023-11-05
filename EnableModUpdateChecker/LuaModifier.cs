@@ -188,7 +188,12 @@ namespace EnableModUpdateChecker
 				{ "%MOD_VAR_NAME%", modVarName },
 			};
 
-			string code = @"local mod_update_check_callback = function(success, code, headers, data, userdata)
+			string code = @"%MOD_VAR_NAME%.up_to_date_callbacks = {}
+%MOD_VAR_NAME%.register_MUC_callback = function(callback)
+    table.insert(%MOD_VAR_NAME%.up_to_date_callbacks, callback)
+end
+
+local mod_update_check_callback = function(success, code, headers, data, userdata)
     mod:pcall(function()
 	    if not data then " + onFail + @" return end
 	    local first_update_index = data:find(""Update: "")
@@ -205,9 +210,16 @@ namespace EnableModUpdateChecker
 		    return true
 	    end
 	    %MOD_VAR_NAME%.up_to_date = MUC_get_up_to_date(ours, latest)" + chatOutput + @"
+        for _, cb in ipairs(%MOD_VAR_NAME%.up_to_date_callbacks) do
+            cb(%MOD_VAR_NAME%.up_to_date)
+        end
 	end)
 end
-Managers.curl:get(""https://steamcommunity.com/sharedfiles/filedetails/changelog/%MOD_ID%"", {""Accept-Language: de;q=0.5""}, mod_update_check_callback)";
+%MOD_VAR_NAME%.MUC_check_for_update = function()
+    Managers.curl:get(""https://steamcommunity.com/sharedfiles/filedetails/changelog/%MOD_ID%"", {""Accept-Language: de;q=0.5""}, mod_update_check_callback)
+end
+%MOD_VAR_NAME%.MUC_check_for_update()
+";
 
 			foreach (var kvp in variables)
 			{
