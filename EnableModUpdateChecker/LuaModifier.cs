@@ -190,7 +190,7 @@ namespace EnableModUpdateChecker
 end
 
 local mod_update_check_callback = function(success, code, headers, data, userdata)
-    mod:pcall(function()
+    %MOD_VAR_NAME%:pcall(function()
 	    if not data then " + onFail + @" return end
 	    local first_update_index = data:find(""Update: "")
 	    if not first_update_index then %MOD_VAR_NAME%:echo(%MOD_VAR_NAME%:localize(""MUC_fail"", %MOD_VAR_NAME%:get_readable_name())) return end
