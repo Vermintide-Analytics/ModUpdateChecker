@@ -189,29 +189,93 @@ namespace EnableModUpdateChecker
     table.insert(%MOD_VAR_NAME%.up_to_date_callbacks, callback)
 end
 
+local vmf = get_mod(""VMF"")
+local MUC_verbose_logging = vmf and vmf:get(""developer_mode"")
+local MUC_log = function(msg)
+    if MUC_verbose_logging then
+        %MOD_VAR_NAME%:echo(""[ModUpdateChecker] "" .. msg)
+    else
+        %MOD_VAR_NAME%:info(""[ModUpdateChecker] "" .. msg)
+    end
+end
+local MUC_format_dt = function(t)
+    if not t or not t[1] then return ""(invalid)""
+    end
+    return string.format(""%04d-%02d-%02d %02d:%02d UTC"", t[1], t[2] or 0, t[3] or 0, t[4] or 0, t[5] or 0)
+end
+local MUC_compare_message = function(ours, latest, is_up_to_date)
+    local steam_dt = MUC_format_dt(latest)
+    local ours_dt = MUC_format_dt(ours)
+    if not is_up_to_date then
+        return string.format(""The most recent update from the steam page is %s which is newer than this version's build time %s (mod is out of date)."", steam_dt, ours_dt)
+    end
+    local same = true
+    for i = 1, 5 do
+        if ours[i] ~= latest[i] then same = false break end
+    end
+    if same then
+        return string.format(""The most recent update from the steam page is %s which is the same as this version's build time %s (mod is up to date)."", steam_dt, ours_dt)
+    end
+    return string.format(""The most recent update from the steam page is %s which is older than this version's build time %s (mod is up to date)."", steam_dt, ours_dt)
+end
+
 local mod_update_check_callback = function(success, code, headers, data, userdata)
+    MUC_log(""Update check callback received (success="" .. tostring(success) .. "", HTTP code="" .. tostring(code) .. "")"")
     %MOD_VAR_NAME%:pcall(function()
-	    if not data then " + onFail + @" return end
+	    if not data then
+            MUC_log(""FAILURE at step 1: curl returned no response body."")
+            " + onFail + @"
+            return
+        end
+	    MUC_log(""Step 1 OK: response body length is "" .. #data .. "" bytes."")
 	    local first_update_index = data:find(""Update: "")
-	    if not first_update_index then %MOD_VAR_NAME%:echo(%MOD_VAR_NAME%:localize(""MUC_fail"", %MOD_VAR_NAME%:get_readable_name())) return end
+	    if not first_update_index then
+            MUC_log('FAILURE at step 2: response body does not contain the changelog marker ""Update: "".')
+            %MOD_VAR_NAME%:echo(%MOD_VAR_NAME%:localize(""MUC_fail"", %MOD_VAR_NAME%:get_readable_name()))
+            return
+        end
+	    MUC_log(""Step 2 OK: found changelog marker at byte index "" .. first_update_index .. ""."")
 	    local ours = { %UPLOAD_DATE_TIME% }
+	    MUC_log(""This version's hardcoded build time (UTC): "" .. MUC_format_dt(ours))
 	    local year_p, no_year_p = ""(%d+)%. (%a+)%.? (%d+) um (%d+):(%d+)"", ""(%d+)%. (%a+)%.? um (%d+):(%d+)""
-	    local month_lut = {Jan=1,[""Jän""]=1,Feb=2,[""März""]=3,Apr=4,Mai=5,Jun=6,Juni=6,Jul=7,Juli=7,Aug=8,Sep=9,Sept=9,Okt=10,Nov=11,Dez=12}
+	    local month_lut = {Jan=1,[""Jän""]=1,Feb=2,[""März""]=3,Mrz=3,Apr=4,Mai=5,Jun=6,Juni=6,Jul=7,Juli=7,Aug=8,Sep=9,Sept=9,Okt=10,Nov=11,Dez=12}
 	    local substr = data:sub(first_update_index, first_update_index+30)
+	    MUC_log(""Raw substr from HTML (30 chars from marker): "" .. substr)
 	    local day, month, year, hour, minute = substr:match(year_p)
-	    if not day then year, day, month, hour, minute = os.date(""%Y""), substr:match(no_year_p) end
-	    local latest = { tonumber(year),month_lut[month],tonumber(day),tonumber(hour),tonumber(minute) }
+	    if not day then
+            year, day, month, hour, minute = os.date(""%Y""), substr:match(no_year_p)
+            MUC_log(""Parsed with no-year pattern; assumed year from os.date: "" .. tostring(year))
+        else
+            MUC_log(""Parsed with year-in-substr pattern."")
+        end
+	    MUC_log(""Parsed values — day="" .. tostring(day) .. "", month="" .. tostring(month) .. "", year="" .. tostring(year) .. "", hour="" .. tostring(hour) .. "", minute="" .. tostring(minute))
+	    local month_num = month_lut[month]
+	    if not day or not month_num or not hour or not minute then
+            MUC_log(""FAILURE at step 3: could not parse a complete date/time from substr (month_lut lookup: "" .. tostring(month_num) .. "")."")
+            %MOD_VAR_NAME%:echo(%MOD_VAR_NAME%:localize(""MUC_fail"", %MOD_VAR_NAME%:get_readable_name()))
+            return
+        end
+	    local latest = { tonumber(year), month_num, tonumber(day), tonumber(hour), tonumber(minute) }
+	    if not latest[1] or not latest[3] or not latest[4] or not latest[5] then
+            MUC_log(""FAILURE at step 3: tonumber failed on parsed date/time components."")
+            %MOD_VAR_NAME%:echo(%MOD_VAR_NAME%:localize(""MUC_fail"", %MOD_VAR_NAME%:get_readable_name()))
+            return
+        end
+	    MUC_log(""Step 3 OK: latest Steam update time (UTC): "" .. MUC_format_dt(latest))
 	    local MUC_get_up_to_date = function(table_ours, table_latest)
 		    for i = 1, 5 do if table_ours[i] > table_latest[i] then return true elseif table_ours[i] < table_latest[i] then return false end end
 		    return true
 	    end
-	    %MOD_VAR_NAME%.up_to_date = MUC_get_up_to_date(ours, latest)" + chatOutput + @"
+	    %MOD_VAR_NAME%.up_to_date = MUC_get_up_to_date(ours, latest)
+	    MUC_log(MUC_compare_message(ours, latest, %MOD_VAR_NAME%.up_to_date))
+	    MUC_log(""Comparison result: up_to_date="" .. tostring(%MOD_VAR_NAME%.up_to_date))" + chatOutput + @"
         for _, cb in ipairs(%MOD_VAR_NAME%.up_to_date_callbacks) do
             cb(%MOD_VAR_NAME%.up_to_date)
         end
 	end)
 end
 %MOD_VAR_NAME%.MUC_check_for_update = function()
+    MUC_log(""Starting update check for workshop item %MOD_ID%."")
     Managers.curl:get(""https://steamcommunity.com/sharedfiles/filedetails/changelog/%MOD_ID%"", {""Accept-Language: de;q=0.5"", ""Cookie: timezoneOffset=0,0""}, mod_update_check_callback)
 end
 %MOD_VAR_NAME%.MUC_check_for_update()
