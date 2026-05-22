@@ -212,7 +212,7 @@ local mod_update_check_callback = function(success, code, headers, data, userdat
 	end)
 end
 %MOD_VAR_NAME%.MUC_check_for_update = function()
-    Managers.curl:get(""https://steamcommunity.com/sharedfiles/filedetails/changelog/%MOD_ID%"", {""Accept-Language: de;q=0.5""}, mod_update_check_callback)
+    Managers.curl:get(""https://steamcommunity.com/sharedfiles/filedetails/changelog/%MOD_ID%"", {""Accept-Language: de;q=0.5"", ""Cookie: timezoneOffset=0,0""}, mod_update_check_callback)
 end
 %MOD_VAR_NAME%.MUC_check_for_update()
 ";
